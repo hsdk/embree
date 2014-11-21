@@ -197,6 +197,32 @@ namespace embree
     return (((uint64)x) << 32) | (uint64)y;
   }
 
+  class Test1
+  {
+  public:
+    __forceinline Test1 ()
+    {
+      const size_t taskCount = LockStepTaskScheduler::instance()->getNumThreads();
+      LockStepTaskScheduler::instance()->dispatchTaskSet(task_set,this,taskCount);
+    }
+
+    static void task_set(void* data, const size_t threadIndex, const size_t threadCount, const size_t taskIndex, const size_t taskCount) {
+    }
+  };
+
+  class Test2
+  {
+  public:
+    __forceinline Test2 ()
+    {
+      const size_t taskCount = LockStepTaskScheduler::instance()->getNumThreads();
+      LockStepTaskScheduler::instance()->dispatchTask(task_set,this,0,taskCount);
+    }
+
+    static void task_set(void* data, const size_t threadID, const size_t numThreads) {
+    }
+  };
+
   void SubdivMesh::initializeHalfEdgeStructures ()
   {
     /* allocate half edge array */
@@ -300,20 +326,48 @@ namespace embree
 
 #else
 
+    double T0 = getSeconds();
+    Test1 test1;
+    double T1 = getSeconds();
+    Test2 test2;
+    double T2 = getSeconds();
+
+    PRINT(1000.0f*(T1-T0));
+    PRINT(1000.0f*(T2-T1));
+
     double t0 = getSeconds();
 
     /* calculate start edge of each face */
     faceStartEdge.resize(numFaces);
     size_t numHalfEdges = parallel_prefix_sum(faceVertices,faceStartEdge,numFaces);
         
+    double ta = getSeconds();
+
     /* create set with all */
     holeSet.init(holes);
+
+    double tb = getSeconds();
 
     /* create set with all vertex creases */
     vertexCreaseMap.init(vertex_creases,vertex_crease_weights);
     
+    double tc = getSeconds();
+
     /* create map with all edge creases */
     edgeCreaseMap.init(edge_creases,edge_crease_weights);
+
+    double td = getSeconds();
+
+    /* create all half edges */
+    parallel_for( size_t(0), numFaces, size_t(4096), [&](const range<size_t>& r) 
+    {
+      for (size_t f=r.begin(); f<r.end(); f++) 
+      {
+	volatile size_t i=f;
+      }
+    });
+
+    double tdd = getSeconds();
 
     /* create all half edges */
     parallel_for( size_t(0), numFaces, size_t(4096), [&](const range<size_t>& r) 
@@ -347,8 +401,12 @@ namespace embree
       }
     });
 
+    double te = getSeconds();
+
     /* sort half edges to find adjacent edges */
     radix_sort_u64(&halfEdges1[0],&halfEdges0[0],numHalfEdges);
+
+    double tf = getSeconds();
 
     /* link all adjacent pairs of edges */
     parallel_for( size_t(0), numHalfEdges, size_t(4096), [&](const range<size_t>& r) 
@@ -379,6 +437,8 @@ namespace embree
       }
     });
 
+    double tg = getSeconds();
+
     /* cleanup some state for static scenes */
     if (parent->isStatic()) 
     {
@@ -392,6 +452,15 @@ namespace embree
 #endif
 
     double t1 = getSeconds();
+
+    PRINT(1000.0f*(ta-t0));
+    PRINT(1000.0f*(tb-ta));
+    PRINT(1000.0f*(tc-tb));
+    PRINT(1000.0f*(td-tc));
+    PRINT(1000.0f*(tdd-td));
+    PRINT(1000.0f*(te-tdd));
+    PRINT(1000.0f*(tf-te));
+    PRINT(1000.0f*(tg-tf));
 
     /* print statistics in verbose mode */
     if (g_verbose >= 1) 
